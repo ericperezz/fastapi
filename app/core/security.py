@@ -1,4 +1,6 @@
+import re
 from datetime import datetime, timedelta, timezone
+from fastapi import HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -9,7 +11,40 @@ pwd_context = CryptContext(
 )
 
 
+def validate_password_strength(password: str) -> None:
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no puede superar los 72 bytes"
+        )
+
+    if len(password) < settings.PASSWORD_MIN_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La contraseña debe tener al menos {settings.PASSWORD_MIN_LENGTH} caracteres"
+        )
+
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña debe contener al menos una mayúscula"
+        )
+
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña debe contener al menos una minúscula"
+        )
+
+    if not re.search(r"\d", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña debe contener al menos un número"
+        )
+
+
 def hash_password(password: str) -> str:
+    validate_password_strength(password)
     return pwd_context.hash(password)
 
 

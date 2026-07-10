@@ -1,12 +1,13 @@
 from fastapi import FastAPI
-from sqlalchemy import text
 from app.core.config import settings
-from app.db.session import AsyncSessionLocal
+from app.api.v1.router import api_router
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0"
 )
+
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health")
@@ -15,10 +16,3 @@ async def health_check():
         "status": "ok",
         "environment": settings.APP_ENV
     }
-
-
-@app.get("/db-check")
-async def db_check():
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(text("SELECT 1"))
-        return {"db": result.scalar()}

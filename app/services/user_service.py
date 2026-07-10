@@ -36,33 +36,25 @@ class UserService:
 
         return await self.repository.create(user)
 
-    async def update_user(self, user: User, data: UserUpdate) -> User:
-        update_data = data.model_dump(exclude_unset=True)
+async def change_password(
+    self,
+    user: User,
+    data: UserPasswordChange
+) -> None:
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual no es correcta"
+        )
 
-        for field, value in update_data.items():
-            setattr(user, field, value)
+    if verify_password(data.new_password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La nueva contraseña no puede ser igual a la anterior"
+        )
 
-        return await self.repository.update(user)
-
-    async def change_password(
-        self,
-        user: User,
-        data: UserPasswordChange
-    ) -> None:
-        if not verify_password(data.current_password, user.hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La contraseña actual no es correcta"
-            )
-
-        if verify_password(data.new_password, user.hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La nueva contraseña no puede ser igual a la anterior"
-            )
-
-        user.hashed_password = hash_password(data.new_password)
-        await self.repository.update(user)
+    user.hashed_password = hash_password(data.new_password)
+    await self.repository.update(user)
 
     async def delete_user(self, user: User) -> None:
         user.is_deleted = True
