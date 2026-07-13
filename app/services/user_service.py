@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
+
 from fastapi import HTTPException, status
+
 from app.models.user import User
 from app.schemas.user import (
     UserCreate,
@@ -36,30 +38,39 @@ class UserService:
 
         return await self.repository.create(user)
 
-async def change_password(
-    self,
-    user: User,
-    data: UserPasswordChange
-) -> None:
-    if not verify_password(data.current_password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La contraseña actual no es correcta"
-        )
+    async def update_user(self, user: User, data: UserUpdate) -> User:
+        update_data = data.model_dump(exclude_unset=True)
 
-    if verify_password(data.new_password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La nueva contraseña no puede ser igual a la anterior"
-        )
+        for field, value in update_data.items():
+            setattr(user, field, value)
 
-    user.hashed_password = hash_password(data.new_password)
-    await self.repository.update(user)
+        return await self.repository.update(user)
+
+    async def change_password(
+        self,
+        user: User,
+        data: UserPasswordChange
+    ) -> None:
+        if not verify_password(data.current_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La contraseña actual no es correcta"
+            )
+
+        if verify_password(data.new_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La nueva contraseña no puede ser igual a la anterior"
+            )
+
+        user.hashed_password = hash_password(data.new_password)
+        await self.repository.update(user)
 
     async def delete_user(self, user: User) -> None:
         user.is_deleted = True
         user.is_active = False
         user.deleted_at = datetime.utcnow()
+
         await self.repository.update(user)
 
     async def list_users(self, limit: int = 20, offset: int = 0) -> list[User]:
