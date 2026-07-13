@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.security import decode_token
 from app.repositories.user_repository import UserRepository
+from app.models.user import User
+from app.core.permissions import require_role
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login"
@@ -51,3 +53,10 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_admin(
+    current_user: User = Depends(get_current_user)
+):
+    require_role(current_user, ["admin"])
+    return current_user
