@@ -37,10 +37,14 @@ class UserRepository:
         return result.scalar_one_or_none()
 
     async def create(self, user: User) -> User:
-        self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
-        return user
+        try:
+            self.db.add(user)
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def update(self, user: User) -> User:
         await self.db.commit()
@@ -55,3 +59,11 @@ class UserRepository:
             .offset(offset)
         )
         return list(result.scalars().all())
+    
+    async def get_by_email_any_status(self, email: str) -> User | None:
+        result = await self.db.execute(
+        select(User).where(
+            User.email == email.lower()
+        )
+    )
+        return result.scalar_one_or_none()

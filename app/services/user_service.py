@@ -24,13 +24,18 @@ class UserService:
         self.repository = repository
 
     async def create_user(self, data: UserCreate) -> User:
-        existing_user = await self.repository.get_by_email(data.email)
+        existing_user = await self.repository.get_by_email_any_status(data.email)
 
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El email ya está registrado"
             )
+            if existing_username:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El username ya está registrado"
+                )
 
         validate_password_strength(data.password)
 
