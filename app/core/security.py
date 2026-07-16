@@ -1,9 +1,14 @@
 import re
+import secrets
+import hashlib
 from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException, status
 from jose import jwt
 from passlib.context import CryptContext
+
 from app.core.config import settings
+
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -76,3 +81,36 @@ def decode_token(token: str) -> dict:
         settings.JWT_SECRET_KEY,
         algorithms=[settings.JWT_ALGORITHM]
     )
+
+
+# ============================================================
+# Utilidades para tokens seguros
+# ============================================================
+
+def generate_secure_token() -> str:
+    """
+    Genera un token aleatorio seguro para usos como:
+    - reset de contraseña
+    - verificación de email
+    - invitaciones
+    """
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(token: str) -> str:
+    """
+    Hashea un token antes de guardarlo en base de datos.
+
+    Importante:
+    - El token real se entrega al usuario.
+    - En base de datos guardamos solo este hash.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def verify_token(plain_token: str, token_hash: str) -> bool:
+    """
+    Verifica si un token plano corresponde al hash guardado.
+    """
+    calculated_hash = hash_token(plain_token)
+    return secrets.compare_digest(calculated_hash, token_hash)

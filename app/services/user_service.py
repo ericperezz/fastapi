@@ -16,12 +16,18 @@ from app.core.security import (
     verify_password,
     validate_password_strength
 )
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 
 
 class UserService:
 
-    def __init__(self, repository: UserRepository):
+    def __init__(
+        self,
+        repository: UserRepository,
+        refresh_token_repository: RefreshTokenRepository | None = None
+    ):
         self.repository = repository
+        self.refresh_token_repository = refresh_token_repository
 
     async def create_user(self, data: UserCreate) -> User:
         existing_user = await self.repository.get_by_email_any_status(data.email)
@@ -31,20 +37,24 @@ class UserService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El email ya está registrado"
             )
-            if existing_username:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="El username ya está registrado"
-                )
 
-        validate_password_strength(data.password)
+        if data.username:
+            existing_username = await self.repository.get_by_username_any_status(
+                data.username
+        )
+
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El username ya está registrado"
+            )
 
         user = User(
-            email=data.email.lower(),
-            username=data.username,
-            first_name=data.first_name,
-            last_name=data.last_name,
-            hashed_password=hash_password(data.password)
+        email=data.email.lower(),
+        username=data.username,
+        first_name=data.first_name,
+        last_name=data.last_name,
+        hashed_password=hash_password(data.password)
         )
 
         return await self.repository.create(user)
@@ -74,10 +84,11 @@ class UserService:
                 detail="La nueva contraseña no puede ser igual a la anterior"
             )
 
-        validate_password_strength(data.new_password)
-
         user.hashed_password = hash_password(data.new_password)
         await self.repository.update(user)
+
+        if self.refresh_token_repository:
+            await self.refresh_token_repository.revoke_all_by_user_id(user.id)
 
     async def delete_user(self, user: User) -> None:
         user.is_deleted = True

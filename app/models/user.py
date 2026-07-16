@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
@@ -76,7 +76,22 @@ class User(Base):
         onupdate=datetime.utcnow
     )
 
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
-        nullable=True
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    password_reset_tokens = relationship(
+        "PasswordResetToken",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+    refresh_tokens = relationship(
+    "RefreshToken",
+    back_populates="user",
+    cascade="all, delete-orphan"
+    )
+
+    audit_logs = relationship(
+    "AuditLog",
+    back_populates="actor",
+    passive_deletes=True
     )

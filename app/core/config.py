@@ -1,4 +1,8 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BASE_DIR / ".env"
 
 
 class Settings(BaseSettings):
@@ -14,9 +18,42 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     PASSWORD_MIN_LENGTH: int = 8
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
-    class Config:
-        env_file = ".env"
+    DB_REQUIRED_ON_STARTUP: bool = False
 
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_STORAGE_URI: str = "redis://127.0.0.1:6379/0"
+
+    RATE_LIMIT_REGISTER: str = "5/hour"
+    RATE_LIMIT_LOGIN: str = "5/minute"
+    RATE_LIMIT_FORGOT_PASSWORD: str = "3/hour"
+
+    BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """
+        Convierte BACKEND_CORS_ORIGINS desde string separado por comas
+        a una lista de URLs.
+
+        Ejemplo:
+        BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+        Resultado:
+        ["http://localhost:3000",
+          "http://localhost:5173"]
+        """
+        return [
+            origin.strip()
+            for origin in self.BACKEND_CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
 
 settings = Settings()

@@ -47,9 +47,13 @@ class UserRepository:
             raise
 
     async def update(self, user: User) -> User:
-        await self.db.commit()
-        await self.db.refresh(user)
-        return user
+        try:
+            await self.db.commit()
+            await self.db.refresh(user)
+            return user
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def list_users(self, limit: int = 20, offset: int = 0) -> list[User]:
         result = await self.db.execute(
@@ -66,4 +70,12 @@ class UserRepository:
             User.email == email.lower()
         )
     )
+        return result.scalar_one_or_none()
+    
+    async def get_by_username_any_status(self, username: str) -> User | None:
+        result = await self.db.execute(
+            select(User).where(
+                User.username == username
+            )
+        )
         return result.scalar_one_or_none()
