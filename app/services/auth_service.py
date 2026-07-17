@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
@@ -19,6 +19,7 @@ from app.repositories.password_reset_token_repository import (
 )
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.schemas.auth import LoginRequest
+from app.models.user import User
 
 logger = get_logger("auth_service")
 
@@ -219,7 +220,7 @@ class AuthService:
                 f"⚠️ DEV ONLY - Token de recuperación para {user.email}: {plain_token}"
             )
 
-    async def reset_password(self, token: str, new_password: str) -> None:
+    async def reset_password(self, token: str, new_password: str) -> User:
         if not self.password_reset_token_repository:
             raise RuntimeError("PasswordResetTokenRepository no fue inicializado")
 
@@ -241,7 +242,14 @@ class AuthService:
                 detail="Token inválido o expirado"
             )
 
-        if password_reset_token.expires_at < datetime.utcnow():
+        now = datetime.now(timezone.utc)
+
+        expires_at = password_reset_token.expires_at
+
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if expires_at < now:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Token inválido o expirado"
@@ -277,3 +285,5 @@ class AuthService:
 
         if self.refresh_token_repository:
             await self.refresh_token_repository.revoke_all_by_user_id(user.id)
+
+        return user

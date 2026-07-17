@@ -14,6 +14,7 @@ from app.db.session import engine
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.docs import router as docs_router
 
 
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
@@ -23,8 +24,11 @@ logger = get_logger("main")
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="1.0.0"
-)
+    version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -36,6 +40,7 @@ app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(docs_router)
 
 
 @app.on_event("startup")
