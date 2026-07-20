@@ -32,6 +32,7 @@ from app.core.config import settings
 from app.dependencies.auth import get_current_admin
 from app.core.security import generate_secure_token, create_access_token, hash_password, verify_password
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
 from app.schemas.auth import ResetPasswordRequest
 from fastapi import Depends, Request, Response
@@ -141,13 +142,31 @@ async def login(
             ip_address=get_client_ip(request)
         )
 
+        if request.cookies.get("docs_access_token"):
+            response.set_cookie(
+                key="docs_api_access_token",
+                value=access_token,
+                httponly=True,
+                secure=False,
+                samesite="lax",
+                max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                path="/",
+            )
+
         user = await user_repository.get_by_email(login_data.email)
 
-        login_at = datetime.now(timezone.utc)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales inválidas",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        login_at = get_login_datetime()
 
         await audit_service.log_event(
             event_type=audit_events.AUTH_LOGIN_SUCCESS,
-            actor_user_id=user.id if user else None,
+            actor_user_id=user.id,
             metadata={
                 "email": login_data.email,
                 "login_at": login_at.isoformat()
@@ -213,44 +232,58 @@ async def refresh_token(
     )
 
 
-@router.post("/logout", response_model=MessageResponse)
+@router.post("/logout")
 async def logout(
+    request: Request,
+    response: Response,
     data: LogoutRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     user_repository = UserRepository(db)
     refresh_token_repository = RefreshTokenRepository(db)
 
     service = AuthService(
         user_repository=user_repository,
-        refresh_token_repository=refresh_token_repository
+        refresh_token_repository=refresh_token_repository,
     )
 
     await service.logout(data.refresh_token)
 
-    return MessageResponse(
-        message="Sesión cerrada correctamente"
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
     )
 
+    return {
+        "message": "Sesión cerrada correctamente"
+    }
 
-@router.post("/logout-all", response_model=MessageResponse)
+
+@router.post("/logout-all")
 async def logout_all(
+    request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     user_repository = UserRepository(db)
     refresh_token_repository = RefreshTokenRepository(db)
 
     service = AuthService(
         user_repository=user_repository,
-        refresh_token_repository=refresh_token_repository
+        refresh_token_repository=refresh_token_repository,
     )
 
     await service.logout_all(current_user.id)
 
-    return MessageResponse(
-        message="Todas las sesiones fueron cerradas correctamente"
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
     )
+
+    return {
+        "message": "Todas las sesiones fueron cerradas correctamente"
+    }
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
@@ -324,5 +357,11 @@ async def reset_password(
     return MessageResponse(
         message="Contraseña actualizada correctamente"
     )
+
+def get_login_datetime():
+    try:
+        return datetime.now(ZoneInfo("Europe/Madrid"))
+    except ZoneInfoNotFoundError:
+        return datetime.now(timezone.utc)
 
 

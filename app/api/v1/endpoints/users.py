@@ -121,7 +121,7 @@ async def list_users(
     return await service.list_users(limit, offset)
 
 
-@router.patch("/{user_id}", response_model=UserResponse)
+@router.patch("/admin/{user_id}", response_model=UserResponse, operation_id="admin_update_user_by_id")
 async def admin_update_user(
     request: Request,
     user_id: uuid.UUID,
@@ -167,21 +167,7 @@ async def admin_update_user(
     return updated_user
 
 
-@router.patch("/{user_id}", response_model=UserResponse)
-async def admin_update_user(
-    user_id: uuid.UUID,
-    data: UserAdminUpdate,
-    admin: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    repository = UserRepository(db)
-    service = UserService(repository)
-
-    user = await service.get_user_by_id(user_id)
-    return await service.admin_update_user(user, data)
-
-
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/admin/{user_id}", status_code=status.HTTP_204_NO_CONTENT, operation_id="admin_delete_user_by_id")
 async def admin_delete_user(
     user_id: uuid.UUID,
     admin: User = Depends(get_current_admin),

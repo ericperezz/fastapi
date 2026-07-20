@@ -104,6 +104,11 @@ async def docs_login(
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+    response = RedirectResponse(
+    url="/docs",
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+
     response.set_cookie(
         key="docs_access_token",
         value=access_token,
@@ -111,6 +116,11 @@ async def docs_login(
         secure=False,
         samesite="lax",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+
+    response.delete_cookie(
+        key="docs_api_access_token",
         path="/",
     )
 
@@ -123,10 +133,17 @@ async def docs_logout():
         url="/docs/login",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
     response.delete_cookie(
         key="docs_access_token",
         path="/",
     )
+
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
+    )
+
     return response
 
 
@@ -146,3 +163,17 @@ async def custom_openapi(
     current_admin: User = Depends(get_current_admin_from_docs_cookie),
 ):
     return JSONResponse(request.app.openapi())
+
+@router.get("/docs/clear-api-user")
+async def docs_clear_api_user():
+    response = RedirectResponse(
+        url="/docs",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
+    )
+
+    return response

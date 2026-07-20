@@ -17,10 +17,11 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 async def get_current_user(
     token: str | None = Depends(oauth2_scheme),
+    docs_api_access_token: str | None = Cookie(default=None),
     docs_access_token: str | None = Cookie(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    raw_token = token or docs_access_token
+    raw_token = token or docs_api_access_token or docs_access_token
 
     if not raw_token:
         raise HTTPException(
