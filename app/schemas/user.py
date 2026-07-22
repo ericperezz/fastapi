@@ -12,6 +12,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    email: EmailStr | None = None
     username: str | None = Field(default=None, min_length=3, max_length=100)
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
@@ -23,6 +24,8 @@ class UserPasswordChange(BaseModel):
 
 
 class UserAdminUpdate(BaseModel):
+    user_id: uuid.UUID
+    email: EmailStr | None = None
     username: str | None = Field(default=None, min_length=3, max_length=100)
     first_name: str | None = Field(default=None, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
@@ -44,3 +47,13 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class MessageResponse(BaseModel):
+    message: str
+
+class UserAdminPasswordChange(BaseModel):
+    user_id: uuid.UUID
+    new_password: str
+
+class UserAdminDelete(BaseModel):
+    user_id: uuid.UUID

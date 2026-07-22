@@ -17,6 +17,7 @@ from app.core.security import (
     validate_password_strength
 )
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from sqlalchemy.exc import IntegrityError
 
 
 class UserService:
@@ -59,8 +60,56 @@ class UserService:
 
         return await self.repository.create(user)
 
-    async def update_user(self, user: User, data: UserUpdate) -> User:
+    async def update_user(
+        self,
+        user: User,
+        data: UserUpdate
+    ) -> User:
         update_data = data.model_dump(exclude_unset=True)
+
+        forbidden_fields = {
+            "password",
+            "hashed_password",
+            "role",
+            "is_active",
+            "is_verified",
+            "is_deleted",
+        }
+
+        for field in forbidden_fields:
+            update_data.pop(field, None)
+
+        new_email = update_data.get("email")
+        if new_email is not None:
+            normalized_email = str(new_email).strip().lower()
+
+            existing_user = await self.repository.get_by_email_including_deleted(
+                normalized_email
+            )
+
+            if existing_user and str(existing_user.id) != str(user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El email ya está en uso"
+                )
+
+            update_data["email"] = normalized_email
+
+        new_username = update_data.get("username")
+        if new_username is not None:
+            normalized_username = str(new_username).strip()
+
+            existing_user = await self.repository.get_by_username_including_deleted(
+                normalized_username
+            )
+
+            if existing_user and str(existing_user.id) != str(user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El username ya está en uso"
+                )
+
+            update_data["username"] = normalized_username
 
         for field, value in update_data.items():
             setattr(user, field, value)
@@ -116,9 +165,12 @@ class UserService:
         user: User,
         data: UserAdminUpdate
     ) -> User:
-        update_data = data.model_dump(exclude_unset=True)
+        update_data = data.model_dump(
+            exclude_unset=True,
+            exclude={"user_id"}
+        )
 
-        allowed_roles = ["admin", "user", "manager", "support"]
+        allowed_roles = ["admin", "user"]
 
         if "role" in update_data and update_data["role"] not in allowed_roles:
             raise HTTPException(
@@ -126,7 +178,70 @@ class UserService:
                 detail="Rol inválido"
             )
 
+        new_email = update_data.get("email")
+        if new_email is not None:
+            normalized_email = str(new_email).strip().lower()
+
+            existing_user = await self.repository.get_by_email_including_deleted(
+                normalized_email
+            )
+
+            if existing_user and str(existing_user.id) != str(user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El email ya está en uso"
+                )
+
+            update_data["email"] = normalized_email
+
+        new_username = update_data.get("username")
+        if new_username is not None:
+            normalized_username = str(new_username).strip()
+
+            existing_user = await self.repository.get_by_username_including_deleted(
+                normalized_username
+            )
+
+            if existing_user and str(existing_user.id) != str(user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El username ya está en uso"
+                )
+
+            update_data["username"] = normalized_username
+
         for field, value in update_data.items():
             setattr(user, field, value)
 
-        return await self.repository.update(user)
+        try:
+            return await self.repository.update(user)
+        except IntegrityError as exc:
+            error_text = str(exc).lower()
+
+            if "ix_users_email" in error_text or "email" in error_text:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El email ya está en uso"
+                )
+
+            if "ix_users_username" in error_text or "username" in error_text:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="El username ya está en uso"
+                )
+
+            raise
+    
+    async def admin_change_password(
+        self,
+        user: User,
+        new_password: str,
+    ) -> User:
+        user.hashed_password = hash_password(new_password)
+
+        updated_user = await self.repository.update(user)
+
+        if self.refresh_token_repository:
+            await self.refresh_token_repository.revoke_all_by_user_id(user.id)
+
+        return updated_user

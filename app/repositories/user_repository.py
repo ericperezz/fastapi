@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
+from sqlalchemy import func
 
 
 class UserRepository:
@@ -22,16 +23,17 @@ class UserRepository:
         result = await self.db.execute(
             select(User).where(
                 User.email == email.lower(),
-                User.is_deleted == False
+                User.is_deleted.is_(False)
             )
         )
         return result.scalar_one_or_none()
 
+
     async def get_by_username(self, username: str) -> User | None:
         result = await self.db.execute(
             select(User).where(
-                User.username == username,
-                User.is_deleted == False
+                func.lower(User.username) == username.lower(),
+                User.is_deleted.is_(False)
             )
         )
         return result.scalar_one_or_none()
@@ -73,6 +75,23 @@ class UserRepository:
         return result.scalar_one_or_none()
     
     async def get_by_username_any_status(self, username: str) -> User | None:
+        result = await self.db.execute(
+            select(User).where(
+                User.username == username
+            )
+        )
+        return result.scalar_one_or_none()
+    
+    async def get_by_email_including_deleted(self, email: str) -> User | None:
+        result = await self.db.execute(
+            select(User).where(
+                User.email == email.lower()
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+    async def get_by_username_including_deleted(self, username: str) -> User | None:
         result = await self.db.execute(
             select(User).where(
                 User.username == username
