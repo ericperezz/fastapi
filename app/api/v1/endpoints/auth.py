@@ -14,11 +14,13 @@ from app.schemas.user import UserCreate, UserResponse
 from app.schemas.auth import (
     LoginRequest,
     TokenResponse,
+    LoginResponse,
     ForgotPasswordRequest,
     ResetPasswordRequest,
     MessageResponse,
     RefreshTokenRequest,
-    LogoutRequest
+    LogoutRequest,
+    RegisterResponse
 )
 from app.dependencies.auth import get_current_user
 from app.models.user import User
@@ -27,6 +29,15 @@ from app.core.request_context import get_client_ip, get_user_agent
 from app.core import audit_events
 from app.core.rate_limit import limiter
 from app.core.config import settings
+from app.dependencies.auth import get_current_admin
+from app.core.security import generate_secure_token, create_access_token, hash_password, verify_password
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+from app.schemas.auth import ResetPasswordRequest
+from fastapi import Depends, Request, Response
+
+
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -47,35 +58,61 @@ def get_client_ip(request: Request) -> str | None:
     return None
 
 
-@router.post("/register", response_model=UserResponse)
+@router.post("/register", response_model=RegisterResponse, status_code=201)
 @limiter.limit(settings.RATE_LIMIT_REGISTER)
 async def register(
     request: Request,
     response: Response,
     data: UserCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
 ):
-    repository = UserRepository(db)
-    service = UserService(repository)
+    user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
 
-    user = await service.create_user(data)
+    user_service = UserService(user_repository)
+
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository
+    )
+
+    user = await user_service.create_user(data)
+
+    login_data = LoginRequest(
+        email=data.email,
+        password=data.password
+    )
+
+    access_token, refresh_token = await auth_service.login(
+        data=login_data,
+        user_agent=get_user_agent(request),
+        ip_address=get_client_ip(request)
+    )
 
     audit_service = AuditService(db)
     await audit_service.log_event(
         event_type=audit_events.USER_CREATED,
-        actor_user_id=user.id,
+        actor_user_id=current_admin.id,
         metadata={
+            "created_user_id": str(user.id),
             "email": user.email,
-            "username": user.username
+            "username": user.username,
+            "created_by_admin_id": str(current_admin.id),
         },
         ip_address=get_client_ip(request),
         user_agent=get_user_agent(request)
     )
 
-    return user
+    return RegisterResponse(
+        user=user,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 async def login(
     request: Request,
@@ -105,22 +142,46 @@ async def login(
             ip_address=get_client_ip(request)
         )
 
+        if request.cookies.get("docs_access_token"):
+            response.set_cookie(
+                key="docs_api_access_token",
+                value=access_token,
+                httponly=True,
+                secure=False,
+                samesite="lax",
+                max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                path="/",
+            )
+
         user = await user_repository.get_by_email(login_data.email)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales inválidas",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        login_at = get_login_datetime()
 
         await audit_service.log_event(
             event_type=audit_events.AUTH_LOGIN_SUCCESS,
-            actor_user_id=user.id if user else None,
+            actor_user_id=user.id,
             metadata={
-                "email": login_data.email
+                "email": login_data.email,
+                "login_at": login_at.isoformat()
             },
             ip_address=get_client_ip(request),
             user_agent=get_user_agent(request)
         )
 
-        return TokenResponse(
+        return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
-            token_type="bearer"
+            token_type="bearer",
+            username=user.username,
+            email=user.email,
+            login_at=login_at
         )
 
     except Exception as e:
@@ -137,7 +198,11 @@ async def login(
             user_agent=get_user_agent(request)
         )
 
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -167,44 +232,58 @@ async def refresh_token(
     )
 
 
-@router.post("/logout", response_model=MessageResponse)
+@router.post("/logout")
 async def logout(
+    request: Request,
+    response: Response,
     data: LogoutRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     user_repository = UserRepository(db)
     refresh_token_repository = RefreshTokenRepository(db)
 
     service = AuthService(
         user_repository=user_repository,
-        refresh_token_repository=refresh_token_repository
+        refresh_token_repository=refresh_token_repository,
     )
 
     await service.logout(data.refresh_token)
 
-    return MessageResponse(
-        message="Sesión cerrada correctamente"
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
     )
 
+    return {
+        "message": "Sesión cerrada correctamente"
+    }
 
-@router.post("/logout-all", response_model=MessageResponse)
+
+@router.post("/logout-all")
 async def logout_all(
+    request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     user_repository = UserRepository(db)
     refresh_token_repository = RefreshTokenRepository(db)
 
     service = AuthService(
         user_repository=user_repository,
-        refresh_token_repository=refresh_token_repository
+        refresh_token_repository=refresh_token_repository,
     )
 
     await service.logout_all(current_user.id)
 
-    return MessageResponse(
-        message="Todas las sesiones fueron cerradas correctamente"
+    response.delete_cookie(
+        key="docs_api_access_token",
+        path="/",
     )
+
+    return {
+        "message": "Todas las sesiones fueron cerradas correctamente"
+    }
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
@@ -267,7 +346,7 @@ async def reset_password(
     audit_service = AuditService(db)
     await audit_service.log_event(
         event_type=audit_events.PASSWORD_RESET_COMPLETED,
-        actor_user_id=user.id,
+        actor_user_id=user.id if user else None,
         metadata={
             "email": user.email
         },
@@ -278,5 +357,11 @@ async def reset_password(
     return MessageResponse(
         message="Contraseña actualizada correctamente"
     )
+
+def get_login_datetime():
+    try:
+        return datetime.now(ZoneInfo("Europe/Madrid"))
+    except ZoneInfoNotFoundError:
+        return datetime.now(timezone.utc)
 
 
