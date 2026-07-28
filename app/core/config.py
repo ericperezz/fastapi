@@ -31,6 +31,9 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
+    FERNET_SECRET_KEY: str
+    REPOSITORIES_BASE_PATH: str = "./cloned_repositories"
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
