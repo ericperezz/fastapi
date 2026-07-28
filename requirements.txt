@@ -18,3 +18,4 @@ pytest
 httpx
 pytest-asyncio
 tzdata
+cryptography
