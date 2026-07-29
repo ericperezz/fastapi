@@ -1,5 +1,3 @@
-import io
-import tarfile
 import time
 from pathlib import Path
 
@@ -15,7 +13,6 @@ from app.core.test_run_status import (
     TEST_STATUS_TIMEOUT,
 )
 
-
 class DockerTestRunner:
     def __init__(self):
         try:
@@ -29,19 +26,8 @@ class DockerTestRunner:
                 ),
             )
 
-    def _build_workspace_tar(self, source_path: Path) -> bytes:
-        fileobj = io.BytesIO()
-
-        with tarfile.open(fileobj=fileobj, mode="w") as tar:
-            for item in source_path.rglob("*"):
-                arcname = Path("workspace") / item.relative_to(source_path)
-                tar.add(item, arcname=str(arcname))
-
-        fileobj.seek(0)
-        return fileobj.read()
-
     def run_tests(self, source_path: str) -> dict:
-        path = Path(source_path)
+        path = Path(source_path).resolve()
 
         if not path.exists():
             raise HTTPException(
@@ -50,23 +36,25 @@ class DockerTestRunner:
             )
 
         docker_image = settings.REPOSITORY_TEST_DOCKER_IMAGE
-
         install_command = settings.REPOSITORY_TEST_INSTALL_COMMAND.strip()
         test_command = settings.REPOSITORY_TEST_COMMAND.strip()
 
         if install_command:
             command = (
-                "cd /workspace && "
-                "if [ -f requirements.txt ]; then "
+                "set -e; "
+                "cd /workspace; "
                 f"{install_command}; "
-                "fi && "
                 f"{test_command}"
             )
         else:
             command = (
-                "cd /workspace && "
+                "set -e; "
+                "cd /workspace; "
                 f"{test_command}"
             )
+
+
+
 
         started_at = time.time()
         container = None
@@ -77,27 +65,21 @@ class DockerTestRunner:
             except ImageNotFound:
                 self.client.images.pull(docker_image)
 
-            container = self.client.containers.create(
+            container = self.client.containers.run(
                 image=docker_image,
                 command=["sh", "-lc", command],
                 working_dir="/workspace",
                 network_disabled=settings.REPOSITORY_TEST_DOCKER_NETWORK_DISABLED,
+                volumes={
+                    str(path): {
+                        "bind": "/workspace",
+                        "mode": "rw",
+                    }
+                },
                 detach=True,
             )
 
-            archive = self._build_workspace_tar(path)
-
-            container.put_archive(
-                path="/",
-                data=archive,
-            )
-
-            container.start()
-
-            result = container.wait(
-                timeout=settings.REPOSITORY_TEST_TIMEOUT_SECONDS
-            )
-
+            result = container.wait(timeout=settings.REPOSITORY_TEST_TIMEOUT_SECONDS)
             exit_code = result.get("StatusCode")
 
             try:
@@ -130,7 +112,6 @@ class DockerTestRunner:
                 stderr = (stderr or "") + "\n" + "\n".join(log_errors)
 
             duration_seconds = round(time.time() - started_at, 2)
-
             max_chars = settings.REPOSITORY_TEST_OUTPUT_MAX_CHARS
 
             if exit_code == 0:
@@ -153,7 +134,6 @@ class DockerTestRunner:
 
         except Exception as exc:
             duration_seconds = round(time.time() - started_at, 2)
-
             error_text = str(exc)
 
             if "Read timed out" in error_text or "timed out" in error_text.lower():
@@ -178,3 +158,5 @@ class DockerTestRunner:
                     container.remove(force=True)
                 except Exception:
                     pass
+
+
