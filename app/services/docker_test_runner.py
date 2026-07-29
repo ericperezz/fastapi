@@ -51,16 +51,22 @@ class DockerTestRunner:
 
         docker_image = settings.REPOSITORY_TEST_DOCKER_IMAGE
 
-        install_command = settings.REPOSITORY_TEST_INSTALL_COMMAND
-        test_command = settings.REPOSITORY_TEST_COMMAND
+        install_command = settings.REPOSITORY_TEST_INSTALL_COMMAND.strip()
+        test_command = settings.REPOSITORY_TEST_COMMAND.strip()
 
-        command = (
-            "cd /workspace && "
-            "if [ -f requirements.txt ]; then "
-            f"{install_command}; "
-            "fi && "
-            f"{test_command}"
-        )
+        if install_command:
+            command = (
+                "cd /workspace && "
+                "if [ -f requirements.txt ]; then "
+                f"{install_command}; "
+                "fi && "
+                f"{test_command}"
+            )
+        else:
+            command = (
+                "cd /workspace && "
+                f"{test_command}"
+            )
 
         started_at = time.time()
         container = None

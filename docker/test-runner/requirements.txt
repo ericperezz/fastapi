@@ -1,0 +1,13 @@
+pytest
+pytest-cov
+pytest-asyncio
+httpx
+requests
+fastapi
+pydantic
+sqlalchemy
+asyncpg
+python-dotenv
+pandas
+numpy
+alembic

@@ -294,7 +294,7 @@ class RepositoryService:
                 ),
                 tests_ran=True,
                 success=success,
-                status=run_status,
+                status=docker_result["status"],
                 exit_code=docker_result.get("exit_code"),
                 stdout=docker_result.get("stdout", ""),
                 stderr=docker_result.get("stderr", ""),
