@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     FERNET_SECRET_KEY: str
     REPOSITORIES_BASE_PATH: str = "./cloned_repositories"
 
+    REPOSITORY_TEST_DOCKER_IMAGE: str = "python:3.12-slim"
+    REPOSITORY_TEST_COMMAND: str = "python -m pytest"
+    REPOSITORY_TEST_INSTALL_COMMAND: str = "python -m pip install -r requirements.txt"
+    REPOSITORY_TEST_TIMEOUT_SECONDS: int = 300
+    REPOSITORY_TEST_DOCKER_NETWORK_DISABLED: bool = False
+    REPOSITORY_TEST_OUTPUT_MAX_CHARS: int = 8000
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",

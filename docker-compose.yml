@@ -19,5 +19,13 @@ services:
     ports:
       - "6379:6379"
 
+  test-runner-image:
+    build:
+      context: .
+      dockerfile: docker/test-runner/Dockerfile
+    image: repository-test-runner:python3.12
+    profiles:
+      - build-only
+
 volumes:
   postgres_data:

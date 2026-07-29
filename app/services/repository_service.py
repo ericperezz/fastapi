@@ -9,11 +9,34 @@ from app.repositories.repository_repository import RepositoryRepository
 from app.schemas.repository import RepositoryCreate, RepositoryUpdate
 from app.services.git_service import GitService
 
+import shutil
+from datetime import datetime, timezone
+
+from app.models.repository_test_run import RepositoryTestRun
+from app.repositories.repository_test_run_repository import RepositoryTestRunRepository
+from app.services.docker_test_runner import DockerTestRunner
+
+from pathlib import Path
+from app.core.config import settings
+from app.core.test_run_status import (
+    TEST_STATUS_FAILED,
+    TEST_STATUS_PASSED,
+    TEST_STATUS_RUNNER_ERROR,
+    TEST_STATUS_SKIPPED,
+    TEST_STATUS_TIMEOUT,
+)
+
 
 class RepositoryService:
-    def __init__(self, repository_repository: RepositoryRepository):
+    def __init__(
+        self,
+        repository_repository: RepositoryRepository,
+        test_run_repository: RepositoryTestRunRepository | None = None,
+    ):
         self.repository_repository = repository_repository
+        self.test_run_repository = test_run_repository
         self.git_service = GitService()
+        self.docker_test_runner = DockerTestRunner()
 
     def _is_admin(self, user: User) -> bool:
         return user.role == "admin"
@@ -135,7 +158,7 @@ class RepositoryService:
         self,
         repository_id: uuid.UUID,
         current_user: User,
-    ) -> Repository:
+    ) -> tuple[Repository, object]:
         repository = await self.get_repository(
             repository_id=repository_id,
             current_user=current_user,
@@ -151,4 +174,144 @@ class RepositoryService:
 
         repository.local_path = local_path
 
-        return await self.repository_repository.update(repository)
+        repository = await self.repository_repository.update(repository)
+
+        status_info = self.git_service.get_repository_status(repository)
+
+        return repository, status_info
+
+
+    async def get_repository_status(
+        self,
+        repository_id: uuid.UUID,
+        current_user: User,
+    ):
+        repository = await self.get_repository(
+            repository_id=repository_id,
+            current_user=current_user,
+        )
+
+        if not repository.local_path:
+            return repository, self.git_service.get_repository_status(repository)
+
+        status_info = self.git_service.get_repository_status(repository)
+
+        return repository, status_info
+
+    async def run_tests_if_repository_changed(
+        self,
+        repository_id: uuid.UUID,
+        current_user: User,
+        pull_before_tests: bool = True,
+    ):
+        if not self.test_run_repository:
+            raise RuntimeError("RepositoryTestRunRepository no fue inicializado")
+
+        repository = await self.get_repository(
+            repository_id=repository_id,
+            current_user=current_user,
+        )
+
+        if not repository.local_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El repositorio todavía no ha sido clonado"
+            )
+
+        status_info = self.git_service.get_repository_status(repository)
+
+        has_changes = (
+            status_info.has_local_changes
+            or status_info.has_remote_changes
+        )
+
+        if not has_changes:
+            test_run = RepositoryTestRun(
+                repository_id=repository.id,
+                triggered_by_user_id=current_user.id,
+                docker_image=settings.REPOSITORY_TEST_DOCKER_IMAGE,
+                command=settings.REPOSITORY_TEST_COMMAND,
+                tests_ran=False,
+                success=None,
+                status=TEST_STATUS_SKIPPED,
+                exit_code=None,
+                stdout=None,
+                stderr=None,
+                duration_seconds=None,
+                has_local_changes=status_info.has_local_changes,
+                has_remote_changes=status_info.has_remote_changes,
+                message="No se ejecutaron tests porque no se detectaron cambios",
+                finished_at=datetime.now(timezone.utc),
+            )
+
+            test_run = await self.test_run_repository.create(test_run)
+
+            return repository, status_info, test_run
+
+        temp_repo_path = None
+
+        try:
+            temp_repo_path = self.git_service.prepare_temporary_copy_and_pull(
+                repository=repository,
+                has_remote_changes=status_info.has_remote_changes,
+                pull_before_tests=pull_before_tests,
+            )
+
+            docker_result = self.docker_test_runner.run_tests(temp_repo_path)
+
+            run_status = docker_result.get("status") or TEST_STATUS_RUNNER_ERROR
+            success = docker_result.get("success", False)
+
+            if run_status == TEST_STATUS_PASSED:
+                message = (
+                    "Se detectaron cambios, se ejecutaron los tests en Docker "
+                    "y pasaron correctamente"
+                )
+            elif run_status == TEST_STATUS_FAILED:
+                message = (
+                    "Se detectaron cambios, se ejecutaron los tests en Docker "
+                    "pero fallaron"
+                )
+            elif run_status == TEST_STATUS_TIMEOUT:
+                message = (
+                    "Se detectaron cambios, pero la ejecución de tests superó el timeout"
+                )
+            else:
+                message = (
+                    "Se detectaron cambios, pero ocurrió un error en el runner de Docker"
+                )
+
+            test_run = RepositoryTestRun(
+                repository_id=repository.id,
+                triggered_by_user_id=current_user.id,
+                docker_image=docker_result.get(
+                    "docker_image",
+                    settings.REPOSITORY_TEST_DOCKER_IMAGE,
+                ),
+                command=docker_result.get(
+                    "command",
+                    settings.REPOSITORY_TEST_COMMAND,
+                ),
+                tests_ran=True,
+                success=success,
+                status=docker_result["status"],
+                exit_code=docker_result.get("exit_code"),
+                stdout=docker_result.get("stdout", ""),
+                stderr=docker_result.get("stderr", ""),
+                duration_seconds=docker_result.get("duration_seconds"),
+                has_local_changes=status_info.has_local_changes,
+                has_remote_changes=status_info.has_remote_changes,
+                message=message,
+                finished_at=datetime.now(timezone.utc),
+            )
+
+            test_run = await self.test_run_repository.create(test_run)
+
+            return repository, status_info, test_run
+
+        finally:
+            if temp_repo_path:
+                shutil.rmtree(
+                    Path(temp_repo_path).parent,
+                    ignore_errors=True,
+                )

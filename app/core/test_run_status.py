@@ -1,0 +1,5 @@
+TEST_STATUS_PASSED = "passed"
+TEST_STATUS_FAILED = "failed"
+TEST_STATUS_RUNNER_ERROR = "runner_error"
+TEST_STATUS_TIMEOUT = "timeout"
+TEST_STATUS_SKIPPED = "skipped"
