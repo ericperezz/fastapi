@@ -164,11 +164,20 @@ class DockerTestRunner:
             except ImageNotFound:
                 self.client.images.pull(docker_image)
 
+            # If there is an install command the container needs network access
+            # so pip/poetry can download packages. Disable network only when
+            # running pure tests with no install step.
+            network_disabled = (
+                settings.REPOSITORY_TEST_DOCKER_NETWORK_DISABLED
+                if not install_command
+                else False
+            )
+
             container = self.client.containers.run(
                 image=docker_image,
                 command=["sh", "-lc", command],
                 working_dir="/workspace",
-                network_disabled=settings.REPOSITORY_TEST_DOCKER_NETWORK_DISABLED,
+                network_disabled=network_disabled,
                 volumes={
                     str(path): {
                         "bind": "/workspace",
