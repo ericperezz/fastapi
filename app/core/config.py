@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     REPOSITORY_TEST_DOCKER_NETWORK_DISABLED: bool = False
     REPOSITORY_TEST_OUTPUT_MAX_CHARS: int = 8000
 
+    INFO_MAIL: str 
+    INFOBIP_BASE_URL: str 
+    INFOBIP_API_KEY: str 
+    REPORT_RECIPIENTS: str 
+    REPORT_EMAIL_RATE_LIMIT_PER_MINUTE: int 
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
@@ -65,5 +71,13 @@ class Settings(BaseSettings):
             for origin in self.BACKEND_CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+    
+    def report_recipients_list(self) -> list[str]:
+        return [
+            email.strip()
+            for email in self.REPORT_RECIPIENTS.split(",")
+            if email.strip()
+        ]
+
 
 settings = Settings()
