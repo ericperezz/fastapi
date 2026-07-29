@@ -25,6 +25,8 @@ class GitRepositoryStatus:
     has_local_changes: bool
     has_remote_changes: bool
     message: str
+    commit_author: str | None = None
+    commit_message: str | None = None
 
 class GitService:
 
@@ -71,6 +73,8 @@ class GitService:
                 has_local_changes=False,
                 has_remote_changes=False,
                 message="El repositorio todavía no ha sido clonado",
+                commit_author=None,
+                commit_message=None,
             )
 
         path = Path(repository.local_path)
@@ -84,6 +88,8 @@ class GitService:
                 has_local_changes=False,
                 has_remote_changes=False,
                 message="La ruta local no contiene un repositorio Git válido",
+                commit_author=None,
+                commit_message=None,
             )
 
         git_password = decrypt_secret(repository.encrypted_git_password)
@@ -104,6 +110,24 @@ class GitService:
                 cwd=path,
             )
             local_commit = local_result.stdout.strip()
+
+            # Obtain commit author and message
+            commit_author = None
+            commit_message = None
+            try:
+                author_result = self._run_git_command(
+                    ["log", "-1", "--format=%an"],
+                    cwd=path,
+                )
+                commit_author = author_result.stdout.strip() or None
+
+                message_result = self._run_git_command(
+                    ["log", "-1", "--format=%s"],
+                    cwd=path,
+                )
+                commit_message = message_result.stdout.strip() or None
+            except Exception:
+                pass
 
             status_result = self._run_git_command(
                 ["status", "--porcelain"],
@@ -148,6 +172,8 @@ class GitService:
                 has_local_changes=has_local_changes,
                 has_remote_changes=has_remote_changes,
                 message=message,
+                commit_author=commit_author,
+                commit_message=commit_message,
             )
 
         except FileNotFoundError:
@@ -162,74 +188,6 @@ class GitService:
                 detail=f"No se pudo obtener el estado del repositorio. Detalle Git: {(exc.stderr or exc.stdout).strip()}",
             )
 
-        try:
-            branch_result = self._run_git_command(
-                ["rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=path,
-            )
-            current_branch = branch_result.stdout.strip()
-
-            local_result = self._run_git_command(
-                ["rev-parse", "HEAD"],
-                cwd=path,
-            )
-            local_commit = local_result.stdout.strip()
-
-            status_result = self._run_git_command(
-                ["status", "--porcelain"],
-                cwd=path,
-            )
-            has_local_changes = bool(status_result.stdout.strip())
-
-            try:
-                self._run_git_command(
-                    ["fetch"],
-                    cwd=path,
-                    timeout=180,
-                )
-
-                remote_result = self._run_git_command(
-                    ["rev-parse", "@{u}"],
-                    cwd=path,
-                )
-                remote_commit = remote_result.stdout.strip()
-
-                has_remote_changes = local_commit != remote_commit
-
-            except subprocess.CalledProcessError:
-                remote_commit = None
-                has_remote_changes = False
-
-            if has_local_changes and has_remote_changes:
-                message = "El repositorio tiene cambios locales y cambios remotos pendientes"
-            elif has_local_changes:
-                message = "El repositorio tiene cambios locales sin commitear"
-            elif has_remote_changes:
-                message = "El repositorio remoto tiene cambios pendientes"
-            else:
-                message = "El repositorio está actualizado y sin cambios locales"
-
-            return GitRepositoryStatus(
-                is_cloned=True,
-                current_branch=current_branch,
-                local_commit=local_commit,
-                remote_commit=remote_commit,
-                has_local_changes=has_local_changes,
-                has_remote_changes=has_remote_changes,
-                message=message,
-            )
-
-        except FileNotFoundError:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Git no está instalado o no está disponible en el PATH del sistema.",
-            )
-
-        except subprocess.CalledProcessError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se pudo obtener el estado del repositorio. Detalle Git: {(exc.stderr or exc.stdout).strip()}",
-            )
 
 
     def _sanitize_git_error(

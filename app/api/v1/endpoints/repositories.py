@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -25,6 +25,10 @@ from app.repositories.repository_test_run_repository import RepositoryTestRunRep
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from app.tasks.test_report_email_task import send_test_report_email_task
+
+
+
 
 
 router = APIRouter()
@@ -213,6 +217,7 @@ async def get_repository_status(
 )
 async def run_repository_tests(
     data: RepositoryRunTestsRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -230,12 +235,17 @@ async def run_repository_tests(
         pull_before_tests=data.pull_before_tests,
     )
 
-    finished_at_madrid = None
+    if test_run and test_run.id:
+        background_tasks.add_task(
+            send_test_report_email_task,
+            str(test_run.id),
+        )
 
+    finished_at_madrid = None
     if test_run.finished_at:
         finished_at_madrid = test_run.finished_at.astimezone(
             ZoneInfo("Europe/Madrid")
-    )
+        )
 
     return RepositoryRunTestsResponse(
         test_run_id=test_run.id,
@@ -255,3 +265,4 @@ async def run_repository_tests(
         finished_at=test_run.finished_at,
         message=test_run.message,
     )
+

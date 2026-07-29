@@ -1,40 +1,59 @@
-# FastAPI Users API
+# FastAPI CI/CD Pipeline API
 
-API REST construida con FastAPI, PostgreSQL, Redis, SQLAlchemy, Alembic, JWT, refresh tokens, recuperación de contraseña, auditoría, rate limiting y CORS.
+API REST construida con **FastAPI**, **PostgreSQL**, **Redis**, **SQLAlchemy**, **Alembic**, **Docker** e **Infobip**.
 
-## Funcionalidades principales
+Cubre gestión completa de usuarios con autenticación JWT, gestión de repositorios Git, ejecución de tests en contenedores Docker aislados, análisis de resultados JUnit y envío automático de reportes HTML por correo electrónico.
 
-- Registro de usuarios.
-- Login con JWT.
-- Refresh tokens.
-- Logout.
-- Logout de todos los dispositivos.
-- Perfil del usuario autenticado.
-- Actualización de perfil.
-- Cambio de contraseña.
-- Eliminación lógica de cuenta.
-- Recuperación de contraseña.
-- Auditoría de eventos.
-- Rate limiting.
-- CORS para frontend.
+---
+
+## Funcionalidades
+
+### 👤 Identidad y Autenticación
+- Registro de usuarios
+- Login con JWT (access token + refresh token)
+- Refresh y rotación de tokens
+- Logout y logout de todos los dispositivos
+- Perfil del usuario autenticado (lectura y actualización)
+- Cambio de contraseña autenticado
+- Recuperación de contraseña por email
+- Eliminación lógica de cuenta
+- Auditoría de eventos
+
+### 📁 Gestión de Repositorios
+- Crear, listar, actualizar, eliminar repositorios
+- Clonar repositorios remotos (credenciales cifradas con Fernet)
+- Actualizar un repositorio desde el remoto
+- Clonar hacia una ruta diferente (clone alternativo)
+
+### 🔁 Verificación de Cambios y Tests
+- Detectar cambios locales y remotos en el repositorio clonado
+- Ejecutar tests unitarios automáticamente cuando hay cambios
+- Ejecución aislada en un contenedor Docker efímero
+- Detección automática del gestor de paquetes del repo (`install-deps`: Poetry / pip / pyproject.toml)
+- Generación y parseo de reporte **JUnit XML** (`pytest --junitxml`)
+- Almacenamiento de resultados estructurados por ejecución
+
+### 📧 Reportes por Email (Infobip)
+- Envío automático de reporte HTML tras cada ejecución de tests
+- Reporte con diseño premium en modo oscuro:
+  - Información del commit (rama, autor, mensaje, ID)
+  - Contadores: Total · Exitosos · Fallidos · Errores · Omitidos · Duración
+  - Tabla detallada por test con estado coloreado
+  - Sección de stderr si hay errores
+- Rate limiting configurable para no saturar el dominio
+- Soporte para múltiples destinatarios
 
 ---
 
 ## Requisitos
 
-Antes de iniciar, necesitas tener instalado:
-
-- Python
-- Docker
-- Docker Compose
+- Python 3.12+
+- Docker Desktop
 - Git
-
-Verificar versiones:
 
 ```powershell
 python --version
 docker --version
-docker compose version
 git --version
 ```
 
@@ -42,170 +61,172 @@ git --version
 
 ## Instalación
 
-Clonar el proyecto:
-
 ```powershell
-git clone URL_DEL_REPOSITORIO
+git clone https://github.com/ericperezz/fastapi.git
 cd fastapi
 ```
 
-Crear entorno virtual:
+Crear entorno virtual e instalar dependencias:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-```
-
-Instalar dependencias:
-
-```powershell
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ---
 
 ## Variables de entorno
 
-Crear el archivo `.env` copiando el ejemplo:
+Copiar el ejemplo:
 
 ```powershell
 copy .env.example .env
 ```
 
-El archivo `.env` debe contener valores como estos:
+Editar `.env` con los valores de tu entorno. Referencia completa:
 
 ```env
+# ── Aplicación ──────────────────────────────────────────
 APP_NAME=FastAPI Users API
 APP_ENV=development
 DEBUG=true
 
+# ── Base de datos ────────────────────────────────────────
 DATABASE_URL=postgresql+asyncpg://fastapi_user:fastapi_password@127.0.0.1:5433/fastapi_db
+DB_REQUIRED_ON_STARTUP=false
 
+# ── JWT ──────────────────────────────────────────────────
 JWT_SECRET_KEY=change_this_super_secret_key_in_production
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
+# ── Contraseñas ──────────────────────────────────────────
 PASSWORD_MIN_LENGTH=8
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=30
 
-DB_REQUIRED_ON_STARTUP=false
-
+# ── Rate Limiting (Redis) ────────────────────────────────
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_STORAGE_URI=redis://127.0.0.1:6379/0
 RATE_LIMIT_REGISTER=5/hour
 RATE_LIMIT_LOGIN=5/minute
 RATE_LIMIT_FORGOT_PASSWORD=3/hour
 
-BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173
+# ── CORS ─────────────────────────────────────────────────
+BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# ── Repositorios ─────────────────────────────────────────
+FERNET_SECRET_KEY=your_fernet_key_here
+REPOSITORIES_BASE_PATH=./cloned_repositories
+
+# ── Docker CI Runner ─────────────────────────────────────
+REPOSITORY_TEST_DOCKER_IMAGE=repository-test-runner:python3.12
+REPOSITORY_TEST_COMMAND=python -m pytest -q --tb=short --disable-warnings
+# 'install-deps' detecta automáticamente Poetry / requirements.txt / pyproject.toml
+REPOSITORY_TEST_INSTALL_COMMAND=install-deps
+REPOSITORY_TEST_TIMEOUT_SECONDS=300
+REPOSITORY_TEST_DOCKER_NETWORK_DISABLED=true
+REPOSITORY_TEST_OUTPUT_MAX_CHARS=8000
+
+# ── Infobip Email ────────────────────────────────────────
+INFO_MAIL=info@tudominio.com
+INFOBIP_BASE_URL=https://xxxxx.api.infobip.com
+INFOBIP_API_KEY=TU_API_KEY
+REPORT_EMAIL_RATE_LIMIT_PER_MINUTE=10
+REPORT_RECIPIENTS=correo1@dominio.com,correo2@dominio.com
 ```
 
-Importante:
+> ⚠️ **Nunca subas `.env` al repositorio.** Está incluido en `.gitignore`.
 
-No subir `.env` al repositorio.
+Para generar una clave Fernet:
+
+```python
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+```
 
 ---
 
-## Levantar PostgreSQL y Redis
-
-Levantar los contenedores:
+## Levantar servicios (PostgreSQL + Redis)
 
 ```powershell
 docker compose up -d
-```
-
-Ver contenedores activos:
-
-```powershell
 docker ps
 ```
 
-Debes ver algo parecido a:
+Puertos esperados:
 
-```txt
-postgres_db
-redis_cache
-```
+| Servicio   | Puerto host | Puerto contenedor |
+|------------|-------------|-------------------|
+| PostgreSQL | 5433        | 5432              |
+| Redis      | 6379        | 6379              |
 
-PostgreSQL debe estar expuesto en:
-
-```txt
-5433 -> 5432
-```
-
-Redis debe estar expuesto en:
-
-```txt
-6379 -> 6379
-```
-
----
-
-## Verificar PostgreSQL
-
-Entrar a PostgreSQL:
+Verificar:
 
 ```powershell
-docker exec -it postgres_db psql -U fastapi_user -d fastapi_db
-```
+# PostgreSQL
+docker exec -it postgres_db psql -U fastapi_user -d fastapi_db -c "SELECT 1;"
 
-Dentro de PostgreSQL:
-
-```sql
-SELECT 1;
-\q
-```
-
----
-
-## Verificar Redis
-
-```powershell
+# Redis
 docker exec -it redis_cache redis-cli ping
-```
-
-Debe responder:
-
-```txt
-PONG
+# → PONG
 ```
 
 ---
 
-## Ejecutar migraciones
+## Imagen Docker del CI Runner
 
-Crear una migración nueva, solo si cambiaste modelos:
+La imagen `repository-test-runner:python3.12` se usa para ejecutar los tests de los repositorios clonados en un entorno aislado. Incluye:
+
+- Python 3.12
+- pytest, pytest-cov, pytest-asyncio, httpx
+- FastAPI, SQLAlchemy, asyncpg, bcrypt, pydantic-settings…
+- **Poetry 2.x** (para repos que usen `pyproject.toml`)
+- Node.js 20 + corepack
+- Script `install-deps`: detecta automáticamente el gestor de paquetes
+
+### Construir la imagen
+
+Desde la raíz del proyecto:
 
 ```powershell
-python -m alembic revision --autogenerate -m "mensaje de migracion"
+docker build -f docker/test-runner/Dockerfile -t repository-test-runner:python3.12 .
 ```
 
-Aplicar migraciones:
+> Reconstruir la imagen si cambias `docker/test-runner/requirements.txt`, el `Dockerfile` o `install-deps.sh`.
+
+### Cómo funciona `install-deps`
+
+El script `/usr/local/bin/install-deps` (incluido en la imagen) detecta el gestor de paquetes del repositorio clonado y lo instala automáticamente:
+
+| Condición                                  | Acción                          |
+|--------------------------------------------|---------------------------------|
+| `pyproject.toml` con `[tool.poetry]`       | `poetry install --no-root`      |
+| `requirements.txt`                         | `pip install -r requirements.txt` |
+| `pyproject.toml` genérico                  | `pip install -e .`              |
+
+---
+
+## Migraciones
 
 ```powershell
+# Aplicar todas las migraciones
 python -m alembic upgrade head
+
+# Crear una nueva migración (tras cambiar modelos)
+python -m alembic revision --autogenerate -m "descripcion"
 ```
 
-Verificar tablas:
+Tablas esperadas tras las migraciones:
 
-```powershell
-docker exec -it postgres_db psql -U fastapi_user -d fastapi_db
 ```
-
-Dentro:
-
-```sql
-\dt
-\q
-```
-
-Tablas esperadas:
-
-```txt
 users
-password_reset_tokens
 refresh_tokens
+password_reset_tokens
 audit_logs
+repositories
+repository_test_runs
 alembic_version
 ```
 
@@ -217,32 +238,14 @@ alembic_version
 python -m uvicorn app.main:app --reload
 ```
 
-Abrir documentación Swagger:
-
-```txt
-http://localhost:8000/docs
-```
-
-Health check:
-
-```txt
-http://localhost:8000/health
-```
-
-Respuesta esperada:
-
-```json
-{
-  "status": "ok",
-  "environment": "development"
-}
-```
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Health check: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 
-## Endpoints principales
+## Endpoints
 
-### Auth
+### 🔐 Auth
 
 ```http
 POST /api/v1/auth/register
@@ -254,7 +257,7 @@ POST /api/v1/auth/forgot-password
 POST /api/v1/auth/reset-password
 ```
 
-### Usuario autenticado
+### 👤 Usuario autenticado
 
 ```http
 GET    /api/v1/users/me
@@ -263,379 +266,87 @@ PATCH  /api/v1/users/me/password
 DELETE /api/v1/users/me
 ```
 
----
-
-## Uso básico de la API
-
-### Register
+### 📁 Repositorios
 
 ```http
-POST /api/v1/auth/register
-```
-
-Body:
-
-```json
-{
-  "email": "user@example.com",
-  "username": "userdemo",
-  "first_name": "Demo",
-  "last_name": "User",
-  "password": "Password123!"
-}
-```
-
-Respuesta esperada:
-
-```json
-{
-  "id": "...",
-  "email": "user@example.com",
-  "username": "userdemo",
-  "first_name": "Demo",
-  "last_name": "User",
-  "role": "user",
-  "is_active": true,
-  "is_verified": false,
-  "created_at": "..."
-}
+POST   /api/v1/repositories                    # Crear repositorio
+GET    /api/v1/repositories                    # Listar repositorios del usuario
+GET    /api/v1/repositories/{id}               # Obtener repositorio
+PATCH  /api/v1/repositories/{id}               # Actualizar repositorio
+DELETE /api/v1/repositories/{id}               # Eliminar repositorio
+POST   /api/v1/repositories/{id}/clone         # Clonar repositorio
+POST   /api/v1/repositories/{id}/pull          # Actualizar desde remoto
+POST   /api/v1/repositories/run-tests          # Verificar cambios y ejecutar tests
 ```
 
 ---
 
-### Login
+## Flujo de CI/CD automático
 
-El login usa formulario OAuth2.
-
-En Swagger, pulsa `Authorize` o usa el endpoint `/login`.
-
-Campos:
-
-```txt
-username = user@example.com
-password = Password123!
 ```
-
-Respuesta esperada:
-
-```json
-{
-  "access_token": "...",
-  "refresh_token": "...",
-  "token_type": "bearer"
-}
-```
-
----
-
-### Obtener perfil
-
-```http
-GET /api/v1/users/me
-```
-
-Header:
-
-```http
-Authorization: Bearer ACCESS_TOKEN
-```
-
-Respuesta esperada:
-
-```json
-{
-  "id": "...",
-  "email": "user@example.com",
-  "username": "userdemo",
-  "first_name": "Demo",
-  "last_name": "User",
-  "role": "user",
-  "is_active": true,
-  "is_verified": false,
-  "created_at": "..."
-}
+POST /api/v1/repositories/run-tests
+         │
+         ▼
+  Detectar cambios (git fetch + diff local/remoto)
+         │
+   ¿Hay cambios?
+    No → guardar resultado SKIPPED
+    Sí ↓
+  Copiar repo a directorio temporal
+  Docker run (install-deps + pytest --junitxml)
+         │
+  Extraer report.xml del contenedor
+  Parsear JUnit XML → { total, passed, failed, test_cases[] }
+         │
+  Guardar RepositoryTestRun en BD
+         │
+  Enviar email HTML a destinatarios (Infobip)
+         │
+  Devolver response con resultado y junit
 ```
 
 ---
 
-### Actualizar perfil
-
-```http
-PATCH /api/v1/users/me
-```
-
-Header:
-
-```http
-Authorization: Bearer ACCESS_TOKEN
-```
-
-Body:
+## Ejemplo de response de run-tests
 
 ```json
 {
-  "first_name": "Eric",
-  "last_name": "Prueba"
+  "tests_ran": true,
+  "success": true,
+  "status": "PASSED",
+  "exit_code": 0,
+  "duration_seconds": 12.4,
+  "stdout": "{\"git\": {\"branch\": \"main\", \"commit_author\": \"Juan\", ...}, \"junit\": {...}}",
+  "stderr": "",
+  "junit": {
+    "total": 15,
+    "passed": 14,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "total_time": 11.8,
+    "test_cases": [
+      {"name": "tests/test_auth.py::test_login", "status": "PASSED", "time": 0.42, "message": ""},
+      {"name": "tests/test_users.py::test_delete", "status": "FAILED", "time": 1.1, "message": "AssertionError: ..."}
+    ]
+  }
 }
-```
-
----
-
-### Cambiar contraseña
-
-```http
-PATCH /api/v1/users/me/password
-```
-
-Header:
-
-```http
-Authorization: Bearer ACCESS_TOKEN
-```
-
-Body:
-
-```json
-{
-  "current_password": "Password123!",
-  "new_password": "NewPassword123!"
-}
-```
-
-Después del cambio, el login con la contraseña anterior debe fallar.
-
----
-
-### Eliminar cuenta
-
-```http
-DELETE /api/v1/users/me
-```
-
-Header:
-
-```http
-Authorization: Bearer ACCESS_TOKEN
-```
-
-Respuesta esperada:
-
-```http
-204 No Content
-```
-
----
-
-## Refresh token
-
-```http
-POST /api/v1/auth/refresh
-```
-
-Body:
-
-```json
-{
-  "refresh_token": "REFRESH_TOKEN"
-}
-```
-
-Respuesta esperada:
-
-```json
-{
-  "access_token": "NEW_ACCESS_TOKEN",
-  "refresh_token": "NEW_REFRESH_TOKEN",
-  "token_type": "bearer"
-}
-```
-
-Importante:
-
-Al usar `/refresh`, el refresh token anterior queda revocado y debes usar el nuevo.
-
----
-
-## Logout
-
-```http
-POST /api/v1/auth/logout
-```
-
-Body:
-
-```json
-{
-  "refresh_token": "REFRESH_TOKEN"
-}
-```
-
-Respuesta esperada:
-
-```json
-{
-  "message": "Sesión cerrada correctamente"
-}
-```
-
----
-
-## Logout all
-
-```http
-POST /api/v1/auth/logout-all
-```
-
-Header:
-
-```http
-Authorization: Bearer ACCESS_TOKEN
-```
-
-Respuesta esperada:
-
-```json
-{
-  "message": "Todas las sesiones fueron cerradas correctamente"
-}
-```
-
----
-
-## Forgot password
-
-```http
-POST /api/v1/auth/forgot-password
-```
-
-Body:
-
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-Respuesta esperada siempre igual:
-
-```json
-{
-  "message": "Si el correo existe, recibirás instrucciones para recuperar tu contraseña"
-}
-```
-
-En desarrollo, el token puede aparecer en la consola del servidor.
-
----
-
-## Reset password
-
-```http
-POST /api/v1/auth/reset-password
-```
-
-Body:
-
-```json
-{
-  "token": "TOKEN_DE_RECUPERACION",
-  "new_password": "NewPassword123!"
-}
-```
-
-Respuesta esperada:
-
-```json
-{
-  "message": "Contraseña actualizada correctamente"
-}
-```
-
----
-
-## Ejecutar tests
-
-```powershell
-pytest
-```
-
-Con más detalle:
-
-```powershell
-pytest -v
-```
-
----
-
-## Rate limiting
-
-Endpoints protegidos:
-
-```http
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/forgot-password
-```
-
-Configuración:
-
-```env
-RATE_LIMIT_REGISTER=5/hour
-RATE_LIMIT_LOGIN=5/minute
-RATE_LIMIT_FORGOT_PASSWORD=3/hour
-```
-
-Si se supera el límite:
-
-```http
-429 Too Many Requests
-```
-
-Para limpiar Redis en desarrollo:
-
-```powershell
-docker exec -it redis_cache redis-cli FLUSHDB
-```
-
----
-
-## CORS
-
-Origins permitidos:
-
-```env
-BACKEND_CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173
-```
-
-Para probar CORS sin frontend real puedes crear un HTML simple y servirlo con:
-
-```powershell
-python -m http.server 5173
 ```
 
 ---
 
 ## Auditoría
 
-Eventos registrados:
+Eventos registrados automáticamente en la tabla `audit_logs`:
 
-```txt
-user.created
-user.updated
-user.deleted
-auth.login.success
-auth.login.failed
-password.changed
-password.reset.requested
-password.reset.completed
+```
+user.created         user.updated         user.deleted
+auth.login.success   auth.login.failed
+password.changed     password.reset.requested   password.reset.completed
 role.changed
 ```
 
-Consultar auditoría:
-
-```powershell
-docker exec -it postgres_db psql -U fastapi_user -d fastapi_db
-```
+Consultar desde PostgreSQL:
 
 ```sql
 SELECT event_type, metadata, created_at
@@ -647,57 +358,32 @@ ORDER BY created_at DESC;
 
 ## Comandos útiles
 
-Levantar servicios:
-
 ```powershell
+# Servicios
 docker compose up -d
-```
-
-Apagar servicios:
-
-```powershell
 docker compose down
-```
+docker compose down -v        # Borrar datos de desarrollo
 
-Apagar y borrar datos de desarrollo:
-
-```powershell
-docker compose down -v
-```
-
-Ejecutar servidor:
-
-```powershell
+# Servidor
 python -m uvicorn app.main:app --reload
-```
 
-Crear migración:
-
-```powershell
-python -m alembic revision --autogenerate -m "mensaje"
-```
-
-Aplicar migraciones:
-
-```powershell
+# Migraciones
 python -m alembic upgrade head
-```
+python -m alembic revision --autogenerate -m "mensaje"
 
-Ejecutar tests:
-
-```powershell
+# Tests locales
 pytest
-```
+pytest -v
 
-Limpiar Redis:
+# Imagen Docker CI
+docker build -f docker/test-runner/Dockerfile -t repository-test-runner:python3.12 .
+docker run --rm repository-test-runner:python3.12 poetry --version
 
-```powershell
+# Redis
+docker exec -it redis_cache redis-cli ping
 docker exec -it redis_cache redis-cli FLUSHDB
-```
 
-Entrar a PostgreSQL:
-
-```powershell
+# PostgreSQL
 docker exec -it postgres_db psql -U fastapi_user -d fastapi_db
 ```
 
@@ -705,12 +391,11 @@ docker exec -it postgres_db psql -U fastapi_user -d fastapi_db
 
 ## Seguridad
 
-- No subir `.env`.
-- Cambiar `JWT_SECRET_KEY` en producción.
-- No guardar contraseñas en texto plano.
-- No devolver `hashed_password`.
-- No guardar refresh tokens en texto plano.
-- No guardar reset tokens en texto plano.
-- Usar HTTPS en producción.
-- No usar CORS con `*` en producción.
-- Desactivar `DEBUG` en producción.
+- No subir `.env` al repositorio
+- Cambiar `JWT_SECRET_KEY` y `FERNET_SECRET_KEY` en producción
+- Usar HTTPS en producción
+- No usar CORS con `*` en producción
+- Desactivar `DEBUG=false` en producción
+- Las contraseñas se almacenan con **bcrypt**
+- Los tokens Git se cifran con **Fernet (AES-128-CBC)**
+- Los refresh tokens y reset tokens **no se guardan en texto plano**
