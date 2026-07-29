@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from fastapi import HTTPException, status
@@ -281,6 +282,22 @@ class RepositoryService:
                     "Se detectaron cambios, pero ocurrió un error en el runner de Docker"
                 )
 
+            # Build structured report JSON for the email builder
+            structured_report = {
+                "git": {
+                    "branch": status_info.current_branch,
+                    "commit_id": status_info.local_commit,
+                    "commit_author": status_info.commit_author,
+                    "commit_message": status_info.commit_message,
+                    "has_local_changes": status_info.has_local_changes,
+                    "has_remote_changes": status_info.has_remote_changes,
+                },
+                "junit": docker_result.get("junit"),
+                "raw_stdout": docker_result.get("stdout", ""),
+            }
+
+            stdout_json = json.dumps(structured_report, ensure_ascii=False, default=str)
+
             test_run = RepositoryTestRun(
                 repository_id=repository.id,
                 triggered_by_user_id=current_user.id,
@@ -296,7 +313,7 @@ class RepositoryService:
                 success=success,
                 status=docker_result["status"],
                 exit_code=docker_result.get("exit_code"),
-                stdout=docker_result.get("stdout", ""),
+                stdout=stdout_json,
                 stderr=docker_result.get("stderr", ""),
                 duration_seconds=docker_result.get("duration_seconds"),
                 has_local_changes=status_info.has_local_changes,

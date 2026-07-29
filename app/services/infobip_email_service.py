@@ -67,11 +67,11 @@ class InfobipEmailService:
             for recipient in final_recipients:
                 await self.rate_limiter.wait()
 
-                data = {
-                    "from": self.sender,
-                    "to": recipient,
-                    "subject": subject,
-                    "html": html,
+                files = {
+                    "from": (None, self.sender),
+                    "to": (None, recipient),
+                    "subject": (None, subject),
+                    "html": (None, html),
                 }
 
                 response = await client.post(
@@ -80,7 +80,7 @@ class InfobipEmailService:
                         "Authorization": f"App {self.api_key}",
                         "Accept": "application/json",
                     },
-                    data=data,
+                    files=files,
                 )
 
                 if response.status_code >= 400:

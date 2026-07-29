@@ -1,12 +1,16 @@
 import logging
 from uuid import UUID
 
+from sqlalchemy import select, func
+
 from app.db.session import AsyncSessionLocal
+from app.models.repository_test_run import RepositoryTestRun
 from app.repositories.test_run_repository import TestRunRepository
 from app.services.infobip_email_service import InfobipEmailService
 from app.services.test_report_builder import TestReportBuilder
 
 logger = logging.getLogger(__name__)
+
 
 async def send_test_report_email_task(
     test_run_id: str,
@@ -26,9 +30,24 @@ async def send_test_report_email_task(
 
             related_repository = getattr(test_run, "repository", None)
 
+            # Calculate the run number for this repository
+            run_number = 1
+            if related_repository:
+                stmt = (
+                    select(func.count())
+                    .select_from(RepositoryTestRun)
+                    .where(
+                        RepositoryTestRun.repository_id == related_repository.id,
+                        RepositoryTestRun.created_at <= test_run.created_at,
+                    )
+                )
+                result = await db.execute(stmt)
+                run_number = result.scalar() or 1
+
             html = TestReportBuilder.build_html_report(
                 test_run=test_run,
                 repository=related_repository,
+                run_number=run_number,
             )
 
             status = getattr(test_run, "status", "UNKNOWN")
@@ -68,5 +87,3 @@ async def send_test_report_email_task(
             "Error enviando reporte de tests para test_run_id=%s",
             test_run_id,
         )
-
-
