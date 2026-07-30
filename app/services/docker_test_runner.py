@@ -8,6 +8,9 @@ from pathlib import Path
 import docker
 from docker.errors import DockerException, ImageNotFound
 from fastapi import HTTPException, status
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.test_run_status import (
@@ -194,6 +197,33 @@ class DockerTestRunner:
             redis_url_docker = _to_docker_host(
                 getattr(settings, "RATE_LIMIT_STORAGE_URI", "redis://host.docker.internal:6379/0")
             )
+
+            # ── Clean the Test Database Schema from the API prior to container execution ──
+            # This avoids dependency type conflicts (e.g. UUID vs BIGINT) from legacy runs.
+            async def _async_clean_db(db_url: str):
+                local_url = db_url.replace("host.docker.internal", "127.0.0.1").replace("localhost", "127.0.0.1")
+                try:
+                    engine = create_async_engine(local_url, echo=False)
+                    async with engine.begin() as conn:
+                        # Drop and recreate public schema to clean all tables, types and views
+                        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+                        await conn.execute(text("CREATE SCHEMA public"))
+                        await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+                        # Re-add common extensions that might be needed by tests
+                        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+                        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""))
+                    await engine.dispose()
+                except Exception as e:
+                    # Fail silently or log if DB connection fails (e.g. not created yet or not postgres)
+                    pass
+
+            try:
+                # Clean the test DB (derived from db_url_docker which has the test configuration)
+                loop = asyncio.new_event_loop()
+                loop.run_until_complete(_async_clean_db(db_url_docker))
+                loop.close()
+            except Exception:
+                pass
 
             container = self.client.containers.run(
                 image=docker_image,
