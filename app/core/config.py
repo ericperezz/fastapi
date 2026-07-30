@@ -35,11 +35,13 @@ class Settings(BaseSettings):
     REPOSITORIES_BASE_PATH: str = "./cloned_repositories"
 
     REPOSITORY_TEST_DOCKER_IMAGE: str = "python:3.12-slim"
-    REPOSITORY_TEST_COMMAND: str = "python -m pytest"
-    REPOSITORY_TEST_INSTALL_COMMAND: str = "python -m pip install -r requirements.txt"
+    REPOSITORY_TEST_COMMAND: str = "run-tests"
+    REPOSITORY_TEST_INSTALL_COMMAND: str = "install-deps"
     REPOSITORY_TEST_TIMEOUT_SECONDS: int = 300
     REPOSITORY_TEST_DOCKER_NETWORK_DISABLED: bool = False
     REPOSITORY_TEST_OUTPUT_MAX_CHARS: int = 8000
+    # Comando pytest pasado al wrapper run-tests vía variable de entorno
+    PYTEST_CMD: str = "python -m pytest -q --tb=short --disable-warnings"
 
     INFO_MAIL: str 
     INFOBIP_BASE_URL: str 

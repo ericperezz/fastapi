@@ -136,9 +136,20 @@ class DockerTestRunner:
         install_command = settings.REPOSITORY_TEST_INSTALL_COMMAND.strip()
         test_command = settings.REPOSITORY_TEST_COMMAND.strip()
 
-        # Inject --junitxml so we can extract structured results
+        # PYTEST_CMD env var — used by the run-tests wrapper to call pytest.
+        # We inject --junitxml here so the wrapper passes it through to pytest.
+        pytest_cmd_base = getattr(settings, "PYTEST_CMD", "").strip()
+        if not pytest_cmd_base:
+            pytest_cmd_base = "python -m pytest -q --tb=short --disable-warnings"
+
         junit_flag = f"--junitxml={JUNIT_XML_PATH}"
-        if junit_flag not in test_command:
+        if junit_flag not in pytest_cmd_base:
+            pytest_cmd_env = f"{pytest_cmd_base} {junit_flag}"
+        else:
+            pytest_cmd_env = pytest_cmd_base
+
+        # If the test_command itself is not the wrapper, inject --junitxml directly
+        if test_command != "run-tests" and junit_flag not in test_command:
             test_command = f"{test_command} {junit_flag}"
 
         if install_command:
@@ -178,6 +189,9 @@ class DockerTestRunner:
                 command=["sh", "-lc", command],
                 working_dir="/workspace",
                 network_disabled=network_disabled,
+                environment={
+                    "PYTEST_CMD": pytest_cmd_env,
+                },
                 volumes={
                     str(path): {
                         "bind": "/workspace",

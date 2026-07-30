@@ -28,8 +28,9 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -r /tmp/test-runner-requirements.txt \
     && python -m pip install poetry
 
-# Script inteligente de instalación de dependencias del repo clonado
+# Scripts inteligentes de instalación y ejecución de tests
 COPY docker/test-runner/install-deps.sh /usr/local/bin/install-deps
-RUN chmod +x /usr/local/bin/install-deps
+COPY docker/test-runner/run-tests.sh /usr/local/bin/run-tests
+RUN chmod +x /usr/local/bin/install-deps /usr/local/bin/run-tests
 
-CMD ["sh", "-lc", "python -m pytest -q --tb=short --disable-warnings"]
+CMD ["sh", "-lc", "run-tests"]
