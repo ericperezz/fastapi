@@ -210,6 +210,9 @@ class DockerTestRunner:
                     "ASYNC_DATABASE_URL": db_url_docker,
                     "DATABASE_URL_ASYNC": db_url_docker,
                     "DB_URL": db_url_docker,
+                    # Test Database URLs (often hardcoded in conftest.py fallback)
+                    "TEST_DB_URL": db_url_docker,
+                    "TEST_DATABASE_URL": db_url_docker,
                     # Redis
                     "RATE_LIMIT_STORAGE_URI": redis_url_docker,
                     "REDIS_URL": redis_url_docker,
