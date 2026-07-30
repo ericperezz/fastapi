@@ -141,14 +141,16 @@ class TestReportBuilder:
                 </div>
             </td>"""
 
-        counters_row = (
-            counter_card(total, "Total", "#60a5fa")
-            + counter_card(passed_count, "Exitosos", "#22c55e")
-            + counter_card(failed_count, "Fallidos", "#f87171")
-            + counter_card(error_count, "Errores", "#fb923c")
-            + counter_card(skipped_count, "Omitidos", "#eab308")
-            + counter_card(duration_str, "Duración", "#a78bfa")
-        )
+        counters_row = ""
+        if junit_data is not None:
+            counters_row = (
+                counter_card(total, "Total", "#60a5fa")
+                + counter_card(passed_count, "Exitosos", "#22c55e")
+                + counter_card(failed_count, "Fallidos", "#f87171")
+                + counter_card(error_count, "Errores", "#fb923c")
+                + counter_card(skipped_count, "Omitidos", "#eab308")
+                + counter_card(duration_str, "Duración", "#a78bfa")
+            )
 
         # ── Failed/Error test rows only ────────────────────────────────────
         failed_rows_html = ""
@@ -217,8 +219,39 @@ class TestReportBuilder:
                 <div style="font-size:16px;color:#4ade80;">✅ Todos los tests han pasado correctamente</div>
             </div>"""
         elif raw_stdout:
-            truncated_stdout = escape(raw_stdout[-6000:])
-            failed_section = f"""
+            # Detect if raw_stdout is install/setup noise (pnpm, yarn, npm, pip)
+            # rather than actual test output — avoid dumping it in the email
+            _install_noise_patterns = (
+                "Progress: resolved",
+                "Packages: +",
+                "Done in ",
+                "pnpm install",
+                "yarn install",
+                "npm install",
+                "Successfully installed",
+                "Collecting ",
+                "No se detectaron tests Python",
+                "Ejecución finalizada sin errores",
+            )
+            _is_install_noise = any(p in raw_stdout for p in _install_noise_patterns)
+
+            if _is_install_noise or "No se detectaron tests Python" in raw_stdout:
+                # Non-Python or JS/TS repo — show clean informational card
+                failed_section = """
+            <div style="margin-top:32px;padding:20px;background:#0c1a2e;border:1px solid #1e40af;border-radius:8px;text-align:center;">
+                <div style="font-size:20px;margin-bottom:8px;">ℹ️</div>
+                <div style="font-size:15px;color:#93c5fd;font-weight:bold;margin-bottom:6px;">
+                    No se detectaron tests Python en este repositorio
+                </div>
+                <div style="font-size:13px;color:#64748b;">
+                    Este repositorio no contiene tests unitarios Python (pytest).<br>
+                    Si usa otro framework (Vitest, Jest, etc.), configura
+                    <code style="background:#1e293b;padding:2px 6px;border-radius:4px;">REPOSITORY_TEST_COMMAND</code> manualmente.
+                </div>
+            </div>"""
+            else:
+                truncated_stdout = escape(raw_stdout[-4000:])
+                failed_section = f"""
             <div style="margin-top:32px;">
                 <pre style="background:#020617;border:1px solid #1e293b;padding:16px;color:#d1d5db;overflow:auto;white-space:pre-wrap;border-radius:8px;font-size:12px;">{truncated_stdout}</pre>
             </div>"""
@@ -314,11 +347,13 @@ class TestReportBuilder:
         </div>
 
         <!-- Summary Counters -->
+        {"" if not counters_row else f"""
         <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
             <tr>
                 {counters_row}
             </tr>
         </table>
+        """}
 
         <!-- Failed tests table (no heading, only failures/errors) -->
         {failed_section}
