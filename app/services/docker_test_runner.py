@@ -206,14 +206,12 @@ class DockerTestRunner:
             )
 
             # ── Clean the Test Database from the API prior to container execution ──
-            # This completely drops and recreates the test database to ensure legacy types
-            # (such as UUID instead of BIGINT) are thoroughly purged.
             async def _async_clean_db(db_url: str):
-                # Ensure we point to 127.0.0.1 for local connection
-                local_url = db_url.replace("host.docker.internal", "127.0.0.1").replace("localhost", "127.0.0.1")
-                
-                # Parse DB name from url (e.g. postgresql+asyncpg://user:pass@host:port/db_name)
                 try:
+                    # Ensure we point to 127.0.0.1 for local connection
+                    local_url = db_url.replace("host.docker.internal", "127.0.0.1").replace("localhost", "127.0.0.1")
+                    
+                    # Parse DB name from url (e.g. postgresql+asyncpg://user:pass@host:port/db_name)
                     db_name = local_url.split("/")[-1].split("?")[0]
                     # Create admin URL pointing to 'postgres' database to run DROP/CREATE DATABASE
                     admin_url = local_url.rsplit("/", 1)[0] + "/postgres"
@@ -239,16 +237,27 @@ class DockerTestRunner:
                         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""))
                     await db_engine.dispose()
                 except Exception as e:
-                    # Fail silently or log if connection fails
-                    pass
+                    print(f"Error in _async_clean_db: {e}")
+                    with open("celery_db_error.txt", "w") as f:
+                        f.write(f"Error in _async_clean_db: {e}")
 
-            try:
-                # Clean the test DB (derived from db_url_docker which has the test configuration)
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(_async_clean_db(db_url_docker))
-                loop.close()
-            except Exception:
-                pass
+                try:
+                    import threading
+                    def _run_clean(url):
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        try:
+                            new_loop.run_until_complete(_async_clean_db(url))
+                        finally:
+                            new_loop.close()
+                            
+                    clean_thread = threading.Thread(target=_run_clean, args=(db_url_docker,))
+                    clean_thread.start()
+                    clean_thread.join()
+                except Exception as e:
+                    print(f"Error running db clean thread: {e}")
+                    with open("celery_db_error.txt", "a") as f:
+                        f.write(f"\nError running db clean thread: {e}")
 
             container = self.client.containers.run(
                 image=docker_image,
