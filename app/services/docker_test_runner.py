@@ -193,7 +193,14 @@ class DockerTestRunner:
                     "localhost", "host.docker.internal"
                 )
 
-            db_url_docker = _to_docker_host(settings.DATABASE_URL)
+            # We append '_test' to the database name so it uses a dedicated DB
+            def _get_test_db_url(url: str) -> str:
+                base, db_name = url.rsplit("/", 1)
+                db_name = db_name.split("?")[0]
+                new_db_name = f"{db_name}_test"
+                return f"{base}/{new_db_name}"
+
+            db_url_docker = _to_docker_host(_get_test_db_url(settings.DATABASE_URL))
             redis_url_docker = _to_docker_host(
                 getattr(settings, "RATE_LIMIT_STORAGE_URI", "redis://host.docker.internal:6379/0")
             )
