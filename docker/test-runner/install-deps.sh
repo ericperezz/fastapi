@@ -28,12 +28,39 @@ find_file() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. POETRY  (pyproject.toml con [tool.poetry])
+# 1. POETRY  (pyproject.toml con [tool.poetry] o poetry.lock presente)
 # ─────────────────────────────────────────────────────────────────────────────
 POETRY_DIR=$(find_file "pyproject.toml" 2>/dev/null || true)
-if [ -n "$POETRY_DIR" ] && grep -q "\[tool\.poetry\]" "${POETRY_DIR}pyproject.toml" 2>/dev/null; then
+POETRY_LOCK_DIR=$(find_file "poetry.lock" 2>/dev/null || true)
+
+# Normalise path: "." → "./" so "${DIR}file" becomes "./file"
+normalize_dir() {
+    d="$1"
+    case "$d" in
+        */) echo "$d" ;;
+        *)  echo "${d}/" ;;
+    esac
+}
+
+is_poetry=0
+if [ -n "$POETRY_DIR" ]; then
+    POETRY_DIR=$(normalize_dir "$POETRY_DIR")
+    # Use grep -F for literal match (no regex issues with brackets)
+    if grep -qF "[tool.poetry]" "${POETRY_DIR}pyproject.toml" 2>/dev/null; then
+        is_poetry=1
+    fi
+fi
+# Also treat as Poetry if poetry.lock exists alongside a pyproject.toml
+if [ "$is_poetry" -eq 0 ] && [ -n "$POETRY_LOCK_DIR" ]; then
+    POETRY_DIR=$(normalize_dir "$POETRY_LOCK_DIR")
+    if [ -f "${POETRY_DIR}pyproject.toml" ]; then
+        is_poetry=1
+    fi
+fi
+
+if [ "$is_poetry" -eq 1 ]; then
     echo "📦 Detectado: Poetry  (ruta: ${POETRY_DIR})"
-    cd "/workspace/${POETRY_DIR}"
+    cd "/workspace/${POETRY_DIR%/}"
     poetry install --no-root --without dev 2>/dev/null \
         || poetry install --no-root \
         || poetry install
