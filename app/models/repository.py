@@ -25,7 +25,12 @@ class Repository(Base):
         index=True,
     )
 
-    test_runs = relationship("RepositoryTestRun", back_populates="repository")
+    test_runs = relationship(
+        "RepositoryTestRun",
+        back_populates="repository",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
     name: Mapped[str] = mapped_column(
