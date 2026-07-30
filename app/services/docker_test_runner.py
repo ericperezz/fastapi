@@ -198,23 +198,41 @@ class DockerTestRunner:
                 getattr(settings, "RATE_LIMIT_STORAGE_URI", "redis://host.docker.internal:6379/0")
             )
 
-            # ── Clean the Test Database Schema from the API prior to container execution ──
-            # This avoids dependency type conflicts (e.g. UUID vs BIGINT) from legacy runs.
+            # ── Clean the Test Database from the API prior to container execution ──
+            # This completely drops and recreates the test database to ensure legacy types
+            # (such as UUID instead of BIGINT) are thoroughly purged.
             async def _async_clean_db(db_url: str):
+                # Ensure we point to 127.0.0.1 for local connection
                 local_url = db_url.replace("host.docker.internal", "127.0.0.1").replace("localhost", "127.0.0.1")
+                
+                # Parse DB name from url (e.g. postgresql+asyncpg://user:pass@host:port/db_name)
                 try:
-                    engine = create_async_engine(local_url, echo=False)
-                    async with engine.begin() as conn:
-                        # Drop and recreate public schema to clean all tables, types and views
-                        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-                        await conn.execute(text("CREATE SCHEMA public"))
-                        await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
-                        # Re-add common extensions that might be needed by tests
+                    db_name = local_url.split("/")[-1].split("?")[0]
+                    # Create admin URL pointing to 'postgres' database to run DROP/CREATE DATABASE
+                    admin_url = local_url.rsplit("/", 1)[0] + "/postgres"
+                    
+                    engine = create_async_engine(admin_url, echo=False, isolation_level="AUTOCOMMIT")
+                    async with engine.connect() as conn:
+                        # Terminate other active connections to the test DB
+                        await conn.execute(text(f"""
+                            SELECT pg_terminate_backend(pg_stat_activity.pid)
+                            FROM pg_stat_activity
+                            WHERE pg_stat_activity.datname = '{db_name}'
+                              AND pid <> pg_backend_pid();
+                        """))
+                        # Drop and recreate database
+                        await conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+                        await conn.execute(text(f"CREATE DATABASE {db_name}"))
+                    await engine.dispose()
+                    
+                    # Create extensions on the newly created database
+                    db_engine = create_async_engine(local_url, echo=False)
+                    async with db_engine.begin() as conn:
                         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
                         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\""))
-                    await engine.dispose()
+                    await db_engine.dispose()
                 except Exception as e:
-                    # Fail silently or log if DB connection fails (e.g. not created yet or not postgres)
+                    # Fail silently or log if connection fails
                     pass
 
             try:
