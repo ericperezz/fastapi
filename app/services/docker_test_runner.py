@@ -175,13 +175,24 @@ class DockerTestRunner:
             except ImageNotFound:
                 self.client.images.pull(docker_image)
 
-            # If there is an install command the container needs network access
-            # so pip/poetry can download packages. Disable network only when
-            # running pure tests with no install step.
-            network_disabled = (
-                settings.REPOSITORY_TEST_DOCKER_NETWORK_DISABLED
-                if not install_command
-                else False
+            # ── Network: always enabled — tests need to reach the DB on the host
+            # REPOSITORY_TEST_DOCKER_NETWORK_DISABLED only disables internet during
+            # test-only runs (no install), but DB access on the host is still needed.
+            # We keep network enabled and rely on extra_hosts + env vars for security.
+            network_disabled = False  # Tests always need DB access
+
+            # ── Build a DB URL that works from inside the container ────────
+            # Inside Docker, 127.0.0.1/localhost refers to the container itself.
+            # host.docker.internal resolves to the host machine (Docker Desktop on
+            # Windows/Mac; on Linux we add it via extra_hosts below).
+            def _to_docker_host(url: str) -> str:
+                return url.replace("127.0.0.1", "host.docker.internal").replace(
+                    "localhost", "host.docker.internal"
+                )
+
+            db_url_docker = _to_docker_host(settings.DATABASE_URL)
+            redis_url_docker = _to_docker_host(
+                getattr(settings, "RATE_LIMIT_STORAGE_URI", "redis://host.docker.internal:6379/0")
             )
 
             container = self.client.containers.run(
@@ -189,8 +200,24 @@ class DockerTestRunner:
                 command=["sh", "-lc", command],
                 working_dir="/workspace",
                 network_disabled=network_disabled,
+                # host.docker.internal → host IP  (needed on Linux Docker;
+                # Docker Desktop on Windows/Mac resolves it automatically)
+                extra_hosts={"host.docker.internal": "host-gateway"},
                 environment={
                     "PYTEST_CMD": pytest_cmd_env,
+                    # Common DB URL env var names used by FastAPI/SQLAlchemy projects
+                    "DATABASE_URL": db_url_docker,
+                    "ASYNC_DATABASE_URL": db_url_docker,
+                    "DATABASE_URL_ASYNC": db_url_docker,
+                    "DB_URL": db_url_docker,
+                    # Redis
+                    "RATE_LIMIT_STORAGE_URI": redis_url_docker,
+                    "REDIS_URL": redis_url_docker,
+                    # Individual components (for projects that build the URL manually)
+                    "DB_HOST": "host.docker.internal",
+                    "POSTGRES_HOST": "host.docker.internal",
+                    "POSTGRES_SERVER": "host.docker.internal",
+                    "REDIS_HOST": "host.docker.internal",
                 },
                 volumes={
                     str(path): {
